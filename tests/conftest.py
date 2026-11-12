@@ -65,7 +65,10 @@ def make_row(
 
 @pytest.fixture
 def write_statement(tmp_path):
-    """Return a function that writes a header and rows to a CSV file in tmp_path."""
+    """Return a function that writes a header and rows to a CSV file in tmp_path.
+
+    A row is a dict from make_row, or None for an empty line.
+    """
 
     def _write(rows, name="statement.csv", header=HEADER, bom=False):
         path = tmp_path / name
@@ -74,7 +77,10 @@ def write_statement(tmp_path):
             writer = csv.writer(f)
             writer.writerow(header)
             for row in rows:
-                writer.writerow([row[column] for column in header])
+                if row is None:
+                    writer.writerow([])
+                else:
+                    writer.writerow([row[column] for column in header])
         return path
 
     return _write

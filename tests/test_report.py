@@ -711,3 +711,168 @@ def test_ac25_income_without_mcc_is_uncategorized_income_not_refund(
     assert "refund" not in out.lower()
     assert "350.00" in line_with(out, "no MCC")
     assert "250.00" in out, "net = 350.00 income - 100.00 expenses"
+
+
+# --- AC26 -----------------------------------------------------------------
+
+
+def test_ac26_all_rows_rejected_reports_no_operations_counted(
+    write_statement, rules_path, capsys
+):
+    path = write_statement([
+        make_row(amount="n/a"),
+        make_row(amount="abc"),
+    ])
+
+    code = main(["report", str(path), "--rules", str(rules_path)])
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "No operations were counted" in out
+    assert has_count(line_with(out, "n/a"), 2)
+    assert has_count(line_with(out, "abc"), 3)
+    assert out.index("No operations were counted") < out.index("n/a"), (
+        "rejected list follows the message"
+    )
+
+
+# --- AC27 -----------------------------------------------------------------
+
+
+def test_ac27_only_expenses_summary_has_no_income_and_no_net(
+    write_statement, rules_path, capsys
+):
+    path = write_statement(INCOME_AND_EXPENSE)
+
+    code = main(["report", str(path), "--rules", str(rules_path), "--only-expenses"])
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "300.00" in out
+    assert "0.00" not in words(out), "no zero income total"
+    assert "-300.00" not in out, "no net"
+    assert "net" not in words(out.lower()), "no net"
+
+
+def test_ac27_only_income_summary_has_no_expenses_and_no_net(
+    write_statement, rules_path, capsys
+):
+    path = write_statement(INCOME_AND_EXPENSE)
+
+    code = main(["report", str(path), "--rules", str(rules_path), "--only-income"])
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "800.00" in out
+    assert "0.00" not in words(out), "no zero expenses total"
+    assert "net" not in words(out.lower()), "no net"
+
+
+# --- AC28 -----------------------------------------------------------------
+
+
+def test_ac28_short_mcc_is_padded_with_leading_zeros(
+    write_statement, capsys, tmp_path
+):
+    # Copy the nested categories dict too: dict(RULES) alone would share it
+    # with RULES, and adding "0742" would change RULES for every other test.
+    categories = dict(RULES["categories"])
+    categories["0742"] = "Veterinary"
+    rules = dict(RULES)
+    rules["categories"] = categories
+    rules_file = tmp_path / "rules-0742.json"
+    rules_file.write_text(json.dumps(rules), encoding="utf-8")
+    path = write_statement([make_row(mcc="742", amount="-80.00", description="Ветклініка")])
+
+    code = main(["report", str(path), "--rules", str(rules_file)])
+
+    out = capsys.readouterr().out
+    assert code == 0
+    veterinary = line_with(out, "Veterinary")
+    assert "80.00" in veterinary
+    assert has_count(veterinary, 1)
+    assert "not in rules" not in out
+
+
+# --- AC29 -----------------------------------------------------------------
+
+
+def test_ac29_empty_lines_are_skipped_but_keep_line_numbers(
+    write_statement, rules_path, capsys
+):
+    path = write_statement([
+        make_row(amount="-100.00"),  # line 2
+        None,                        # line 3, empty
+        make_row(amount="n/a"),      # line 4, rejected
+        make_row(amount="-20.00"),   # line 5
+        None,                        # line 6, empty
+        None,                        # line 7, empty
+    ])
+
+    code = main(["report", str(path), "--rules", str(rules_path)])
+
+    out = capsys.readouterr().out
+    assert code == 0
+    groceries = line_with(out, "Groceries")
+    assert "120.00" in groceries
+    assert has_count(groceries, 2)
+    assert has_count(line_with(out, "n/a"), 4), "line number counts the empty line"
+    for empty_line in ("3", "6", "7"):
+        assert empty_line not in words(out), f"empty line {empty_line} is not rejected"
+
+
+# --- AC30 -----------------------------------------------------------------
+
+
+def test_ac30_identical_rows_with_dash_balance_are_possible_duplicates(
+    write_statement, rules_path, capsys
+):
+    row = make_row(mcc="5411", amount="-100.00", balance="—")
+    path = write_statement([row, row])
+
+    code = main(["report", str(path), "--rules", str(rules_path)])
+
+    out = capsys.readouterr().out
+    assert code == 0
+    groceries = line_with(out, "Groceries")
+    assert "200.00" in groceries
+    assert has_count(groceries, 2)
+    warning = line_with(out.lower(), "possible duplicate")
+    assert has_count(warning, 2) and has_count(warning, 3), "warning names lines 2 and 3"
+
+
+# --- AC31 -----------------------------------------------------------------
+
+
+@pytest.mark.parametrize("pattern", ["", "   "])
+def test_ac31_empty_own_transfer_pattern_is_rules_error(
+    write_statement, capsys, tmp_path, pattern
+):
+    rules = dict(RULES)
+    rules["own_transfer_patterns"] = ["поповнення особистого рахунку", pattern]
+    rules_file = tmp_path / "custom-rules.json"
+    rules_file.write_text(json.dumps(rules), encoding="utf-8")
+    path = write_statement([make_row()])
+
+    code = main(["report", str(path), "--rules", str(rules_file)])
+
+    assert code == 1
+    assert str(rules_file) in error_output(capsys)
+
+
+# --- AC32 -----------------------------------------------------------------
+
+
+def test_ac32_unknown_category_is_argument_error_listing_available(
+    write_statement, rules_path, capsys
+):
+    path = write_statement([make_row()])
+
+    code = main([
+        "report", str(path), "--rules", str(rules_path), "--category", "Grocery",
+    ])
+
+    output = error_output(capsys)
+    assert code == 2
+    assert 'Unknown category "Grocery"' in output
+    assert "Groceries" in output
