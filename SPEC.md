@@ -15,10 +15,10 @@ Help people who keep a personal budget see where their money went without loggin
 - "Card currency amount, (UAH)" does not include the commission. Final amounts:
   - Expense = max(0, |Card currency amount| + Commission − Cashback). An expense never goes below 0; such a row is still counted in the number of operations.
   - Income = Card currency amount
-  - An empty Commission or Cashback cell counts as 0.
+  - An empty Commission or Cashback cell, or a cell that contains only "—" (em dash, U+2014, which Monobank exports when there is no value), counts as 0. Such a row is not rejected.
 
 ### Rules file
-- Default location: `rules.json` in the same directory as the program. It can be overridden with `--rules PATH`.
+- Default location: `rules.json` in the project root (the directory that contains the `analyzer` package). The location does not depend on the current working directory. It can be overridden with `--rules PATH`.
 - The project ships with a default `rules.json` that maps common MCCs to categories. The user edits it to add categories and their own-transfer patterns.
 - JSON object with three required keys:
   - `categories` — MCC (4-digit string) → category name. Used for both expenses and income.
@@ -48,18 +48,20 @@ python -m analyzer report FILE [--rules PATH] [--from YYYY-MM-DD] [--to YYYY-MM-
 ```
 
 - `FILE` — path to the statement (required).
-- `--rules PATH` — path to the rules file. Optional; used mainly for tests and for trying alternative rules. Default: `rules.json` next to the program.
+- `--rules PATH` — path to the rules file. Optional; used mainly for tests and for trying alternative rules. Default: `rules.json` in the project root.
 - `--from YYYY-MM-DD` — include operations on or after this date (inclusive). Default: start of the statement.
 - `--to YYYY-MM-DD` — include operations on or before this date (inclusive). Default: end of the statement.
 - A single day is `--from 2026-10-05 --to 2026-10-05`.
 - `--from` later than `--to` is an argument error.
 - `--category NAME` — show only this category (`uncategorized` is a valid name). Default: all categories.
 - `--only-income` and `--only-expenses` are mutually exclusive.
+- Filters select which operations are counted. The summary, the category sections and the uncategorized list use only operations that pass all filters. Rejected rows are listed regardless of filters.
 
 ### Exit codes
 - `0` — report produced (including an empty statement, an empty result after filters, or rejected rows).
 - `1` — file or data error: statement not found or unreadable, file extension is not `.csv`, a required column is missing; rules file missing, not valid JSON, or missing a required key.
-- `2` — invalid arguments (returned by argparse).
+- `2` — invalid arguments (detected by argparse or by the `--from`/`--to` check).
+- The entry point is `main(argv: list[str] | None = None) -> int` in `analyzer/cli.py`. It always returns the exit code and never ends the process itself: the `SystemExit` that argparse raises on an argument error is caught inside `main`, and its code is returned. Only `analyzer/__main__.py` calls `sys.exit(main())`.
 
 ## Categorization rules
 Each valid row goes through these steps in order; the first step that matches decides:
@@ -81,6 +83,8 @@ The report is printed in this order:
 
 Amounts are shown with 2 decimal places, shares with 1. Sections that are empty or hidden by filters are not printed.
 
+Row numbers are line numbers in the statement file: the header is line 1, the first operation is line 2. A duplicate warning names the line numbers of all rows in the group.
+
 ## Edge cases
 - Empty file or header only: the report says "Statement contains no operations", exit 0.
 - No operations left after filters: the report says so, exit 0.
@@ -97,17 +101,24 @@ Amounts are shown with 2 decimal places, shares with 1. Sections that are empty 
 5. Given `--from 2026-10-01 --to 2026-10-15`, when I run the report, then only operations from those dates are counted, including operations on both boundary days.
 6. Given one row with no MCC and one row with an MCC that is not in `categories`, when I run the report, then both are counted in the totals and appear in the uncategorized list with their reasons.
 7. Given `--only-income` and `--only-expenses` together, when I run the report, then I see an argument error and the exit code is 2.
-8. Given a statement where one row has the amount "n/a", when I run the report, then that row appears in the rejected list with a reason that names the amount column, and all other rows are counted.
-9. Given a statement where one row has no date or a date that doesn't parse, when I run the report with or without date filters, then that row appears in the rejected list.
+8. Given a statement where one row has the amount "n/a", when I run the report, then that row appears in the rejected list with its line number and a reason that names the amount column, and all other rows are counted.
+9. Given a statement where one row has no date or a date that doesn't parse, when I run the report with or without date filters, then that row appears in the rejected list with its line number.
 10. Given an empty statement, when I run the report, then I see "Statement contains no operations" and the exit code is 0.
 11. Given a statement path that doesn't exist or a file whose extension is not `.csv`, when I run the report, then I see an error that names the problem and the exit code is 1.
-12. Given a rules file (default or passed with `--rules`) that is missing, is not valid JSON, or lacks a required key, when I run the report, then I see an error that shows the full path of the rules file and the exit code is 1.
+12. Given a rules file (default or passed with `--rules`) that is missing, is not valid JSON, or lacks a required key, when I run the report, then I see an error that shows the full path of the rules file and the exit code is 1. Without `--rules`, the program reads `rules.json` from the project root.
 13. Given an income row of +250.00 with MCC 5411, which is not in `income_mccs`, when I run the report, then it appears in the excluded list as "refund" and is not counted in any total.
 14. Given one row with "Поповнення особистого рахунку" and one row with "Переказ на особистий рахунок" in Description, when I run the report, then both appear in the excluded list as "own transfer" and neither is counted in any total.
-15. Given two rows identical in all columns including Balance, when I run the report, then the operation is counted once and listed in Warnings as a duplicate.
+15. Given two rows identical in all columns including Balance, when I run the report, then the operation is counted once and listed in Warnings as a duplicate with the line numbers of both rows.
 16. Given two rows identical in all columns except Balance, when I run the report, then both are counted and no duplicate warning is shown.
 17. Given a valid statement saved in UTF-8 with BOM, when I run the report, then all required columns are found and the report is the same as for the file without BOM.
 18. Given an expense of −10.00 with cashback 15.00 and no commission, when I run the report, then it is counted as 0.00 and still adds 1 to the category's number of operations.
+19. Given an expense of −100.00 where Commission or Cashback is "—", when I run the report, then the row is not rejected and "—" counts as 0 (for example, commission "—" and cashback "—" give 100.00).
+20. Given a statement without a required column (for example, MCC), when I run the report, then I see an error that names the missing column and the exit code is 1.
+21. Given `--from 2026-10-15 --to 2026-10-01`, when I run the report, then I see an argument error and the exit code is 2.
+22. Given `--category Groceries` (or `--category uncategorized`), when I run the report, then only operations of that category are counted, and no other category and none of its operations appear in the report.
+23. Given `--only-expenses` (or `--only-income`), when I run the report, then only expenses (or only income) are counted, and the other section is not printed.
+24. Given two rows identical in all columns with an empty Balance, when I run the report, then both are counted and listed in Warnings as a possible duplicate with the line numbers of both rows.
+25. Given an income row with no MCC, when I run the report, then it is counted as income in `uncategorized` with the reason "no MCC" and is not excluded as a refund.
 
 ## Non-goals
 - **No website.** We are not building a web version of the product.
