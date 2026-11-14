@@ -2,10 +2,6 @@
 
 ## Quick pass
 
-Run this on every review. Before each project, replace the examples
-(IBAN, credit invoices, `Decimal`) with the sensitive data and business
-rules of that project.
-
 - [ ] Does the module import and run, and are all imports real?
 - [ ] Is the code free of hardcoded secrets?
 - [ ] Are all SQL queries parameterized, with no user input in f-strings?
