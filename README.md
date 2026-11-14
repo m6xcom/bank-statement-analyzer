@@ -109,7 +109,7 @@ python -m mypy --strict analyzer
 
 ## How it was built
 
-I built this spec-first, with an AI coding agent writing the implementation. I started with a short [brief](BRIEF.md) (in Ukrainian) that sets the problem, the audience and the success targets. I turned it into [SPEC.md](SPEC.md), with numbered Given/When/Then acceptance criteria, and wrote the tests from the spec before any code existed. A coding agent then wrote the implementation and was not allowed to change the tests or the spec; the git history confirms it did not.I reviewed the code against [REVIEW_CHECKLIST.md](REVIEW_CHECKLIST.md) and each fix went in test-first: a new criterion in the spec, a failing test, then the code. I answered every open question the agent raised and wrote the decisions back into the spec.
+I built this spec-first, with an AI coding agent writing the implementation. I started with a short [brief](BRIEF.md) (in Ukrainian) that sets the problem, the audience and the success targets. I turned it into [SPEC.md](SPEC.md), with numbered Given/When/Then acceptance criteria, and wrote the tests from the spec before any code existed. A coding agent then wrote the implementation and was not allowed to change the tests or the spec; the git history confirms it did not. I reviewed the code against [REVIEW_CHECKLIST.md](REVIEW_CHECKLIST.md) and wrote the review fixes myself, each one test-first: a new criterion in the spec, a failing test, then the code. I answered every open question the agent raised and wrote the decisions back into the spec.
 
 ## Possible improvements
 
