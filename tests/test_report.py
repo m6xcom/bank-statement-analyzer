@@ -876,3 +876,71 @@ def test_ac32_unknown_category_is_argument_error_listing_available(
     assert code == 2
     assert 'Unknown category "Grocery"' in output
     assert "Groceries" in output
+
+
+# --- AC33 -----------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["\n\n\n", "\r\n\r\n", ",,,,,,,,,\n,,,,,,,,,\n", "\n,,,,,,,,,\n\n"],
+    ids=["blank-lf", "blank-crlf", "empty-fields", "mixed"],
+)
+def test_ac33_only_empty_lines_reports_no_operations(
+    rules_path, capsys, tmp_path, content
+):
+    path = tmp_path / "statement.csv"
+    path.write_bytes(content.encode("utf-8"))
+
+    code = main(["report", str(path), "--rules", str(rules_path)])
+
+    assert code == 0, error_output(capsys)
+    assert "Statement contains no operations" in capsys.readouterr().out
+
+
+# --- AC34 -----------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "name", ["", "   ", "uncategorized", "Uncategorized", "UNCATEGORIZED", " uncategorized "]
+)
+def test_ac34_empty_or_reserved_category_name_is_rules_error(
+    write_statement, capsys, tmp_path, name
+):
+    rules = dict(RULES)
+    rules["categories"] = {**RULES["categories"], "5411": name}
+    rules_file = tmp_path / "custom-rules.json"
+    rules_file.write_text(json.dumps(rules), encoding="utf-8")
+    path = write_statement([make_row()])
+
+    code = main(["report", str(path), "--rules", str(rules_file)])
+
+    assert code == 1
+    assert str(rules_file) in error_output(capsys)
+
+
+# --- AC35 -----------------------------------------------------------------
+
+
+def test_ac35_rules_file_with_bom_gives_same_report_as_without_bom(
+    write_statement, capsys, tmp_path
+):
+    path = write_statement([
+        make_row(mcc="5411", amount="-100.00"),
+        make_row(mcc="4829", amount="500.00", description="From: Іван Петренко"),
+        make_row(amount="-40.00", description="Поповнення особистого рахунку"),
+    ])
+    rules_file = tmp_path / "custom-rules.json"
+
+    rules_file.write_text(json.dumps(RULES, ensure_ascii=False), encoding="utf-8")
+    code_plain = main(["report", str(path), "--rules", str(rules_file)])
+    out_plain = capsys.readouterr().out
+
+    rules_file.write_text(json.dumps(RULES, ensure_ascii=False), encoding="utf-8-sig")
+    code_bom = main(["report", str(path), "--rules", str(rules_file)])
+    captured = capsys.readouterr()
+
+    assert code_plain == 0
+    assert code_bom == 0, captured.err
+    assert "100.00" in line_with(captured.out, "Groceries")
+    assert captured.out == out_plain

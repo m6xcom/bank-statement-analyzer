@@ -179,6 +179,15 @@ class Rules(BaseModel):
     income_mccs: frozenset[Mcc]
     own_transfer_patterns: tuple[str, ...]
 
+    @field_validator("categories")
+    @classmethod
+    def _category_names_valid(cls, categories: dict[str, str]) -> dict[str, str]:
+        if any(not name.strip() for name in categories.values()):
+            raise ValueError("category names must not be empty or whitespace-only")
+        if any(name.strip().casefold() == UNCATEGORIZED for name in categories.values()):
+            raise ValueError(f'category name "{UNCATEGORIZED}" is reserved')
+        return categories
+
     @field_validator("own_transfer_patterns")
     @classmethod
     def _patterns_not_blank(cls, patterns: tuple[str, ...]) -> tuple[str, ...]:

@@ -32,7 +32,7 @@ def load_rules(path: Path) -> Rules:
     """Load and validate the rules file. Errors name the full path."""
     full_path = path.absolute()
     try:
-        text = full_path.read_text(encoding="utf-8")
+        text = full_path.read_text(encoding="utf-8-sig")
     except FileNotFoundError as exc:
         raise InputError(f"Rules file not found: {full_path}") from exc
     except (OSError, UnicodeDecodeError) as exc:
@@ -75,6 +75,8 @@ def load_statement(path: Path) -> Statement:
 def _parse_rows(path: Path, file: TextIO) -> Statement:
     reader = csv.reader(file)
     header = next(reader, None)
+    while header is not None and _is_empty(header):
+        header = next(reader, None)
     if header is None:
         logger.info("statement is empty")
         return Statement(row_count=0, operations=[], rejected=[])
@@ -92,7 +94,7 @@ def _parse_rows(path: Path, file: TextIO) -> Statement:
     for cells in reader:
         row_line = line + 1
         line = reader.line_num
-        if all(cell == "" for cell in cells):
+        if _is_empty(cells):
             # Empty line: not an operation, but it still counts as a line.
             continue
         row_count += 1
@@ -114,6 +116,11 @@ def _parse_rows(path: Path, file: TextIO) -> Statement:
         "read %d rows: %d valid, %d rejected", row_count, len(operations), len(rejected)
     )
     return Statement(row_count=row_count, operations=operations, rejected=rejected)
+
+
+def _is_empty(cells: list[str]) -> bool:
+    """A blank line, or a line where every field is empty."""
+    return all(cell == "" for cell in cells)
 
 
 def _parse_row(

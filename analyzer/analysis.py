@@ -163,7 +163,8 @@ def _category_totals(items: list[Classified]) -> list[CategoryTotal]:
     sums: dict[str, Decimal] = defaultdict(Decimal)
     counts: dict[str, int] = defaultdict(int)
     for item in items:
-        category = item.category or UNCATEGORIZED
+        category = item.category
+        assert category is not None, "counted operations always have a category"
         sums[category] += item.operation.counted_amount
         counts[category] += 1
     total = sum(sums.values(), Decimal("0"))
