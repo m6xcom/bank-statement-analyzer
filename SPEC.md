@@ -23,8 +23,9 @@ Help people who keep a personal budget see where their money went without loggin
 ### Rules file
 - Default location: `rules.json` in the project root (the directory that contains the `analyzer` package). The location does not depend on the current working directory. It can be overridden with `--rules PATH`.
 - The project ships with a default `rules.json` that maps common MCCs to categories. The user edits it to add categories and their own-transfer patterns.
+- UTF-8 with or without BOM. A file with BOM is read the same as the file without it.
 - JSON object with three required keys:
-  - `categories` — MCC (4-digit string) → category name. Used for both expenses and income.
+  - `categories` — MCC (4-digit string) → category name. Used for both expenses and income. A category name must not be empty or whitespace-only, and must not be `uncategorized` in any letter case or with surrounding spaces (`Uncategorized`, `UNCATEGORIZED`, ` uncategorized `). That name is reserved for operations that no rule covers; a rules category with a name that looks the same would be indistinguishable from it in the report. Either problem is a rules file error.
   - `income_mccs` — MCCs for which a positive amount is real income (for example, incoming transfers). A positive amount with any other MCC is treated as a refund.
   - `own_transfer_patterns` — substrings of Description that mark a transfer between the user's own accounts. Matching is case-insensitive. Every pattern must be a non-empty string: an empty or whitespace-only pattern would match every row, so it is a rules file error.
 - Example:
@@ -62,7 +63,7 @@ python -m analyzer report FILE [--rules PATH] [--from YYYY-MM-DD] [--to YYYY-MM-
 
 ### Exit codes
 - `0` — report produced (including an empty statement, an empty result after filters, or rejected rows).
-- `1` — file or data error: statement not found or unreadable, file extension is not `.csv`, file is not valid UTF-8, a required column is missing; rules file missing, not valid JSON, missing a required key, or containing an empty or whitespace-only own-transfer pattern.
+- `1` — file or data error: statement not found or unreadable, file extension is not `.csv`, file is not valid UTF-8, a required column is missing; rules file missing, not valid JSON, missing a required key, containing an empty or whitespace-only own-transfer pattern, or containing an empty, whitespace-only or reserved (`uncategorized` in any letter case) category name.
 - `2` — invalid arguments (detected by argparse, by the `--from`/`--to` check, or by the `--category` check).
 - The entry point is `main(argv: list[str] | None = None) -> int` in `analyzer/cli.py`. It always returns the exit code and never ends the process itself: the `SystemExit` that argparse raises on an argument error is caught inside `main`, and its code is returned. Only `analyzer/__main__.py` calls `sys.exit(main())`.
 
@@ -94,7 +95,7 @@ Row numbers are line numbers in the statement file: the header is line 1, the fi
 When no operation is counted, the report says why:
 - The file is empty, has only the header, or has only empty lines: "Statement contains no operations".
 - At least one filter (`--from`, `--to`, `--category`, `--only-income`, `--only-expenses`) is given and no operation passes the filters: "No operations left after filters".
-- No filter is given and every row was rejected or excluded: "No operations were counted", followed by the excluded and rejected lists.
+- No filter is given and every row was rejected or excluded: "No operations were counted", followed by the excluded list, the warnings and the rejected list.
 
 All three cases exit with code 0.
 
@@ -105,6 +106,17 @@ All three cases exit with code 0.
 - Broken row (amount is not a number, date is missing or doesn't parse, wrong number of fields): the row is rejected with a reason, all other rows are counted. A row without a date is always rejected, regardless of filters.
 - Duplicates: two rows are duplicates only if all columns match, including Balance. Balance is the account balance after the operation, so two real identical purchases at the same second still have different balances. An identical Balance means the same operation was exported twice. A confirmed duplicate is counted once and listed in Warnings.
 - If rows match in all columns but Balance is empty or "—", duplication cannot be confirmed: every row is counted and listed in Warnings as a possible duplicate.
+
+## Decided details
+- An MCC cell that is not empty, not "—" and not 1–4 digits (for example, "12345" or "abc") is used as-is after trimming spaces: the row is not rejected and goes to `uncategorized` as "MCC abc not in rules".
+- When at least one filter is given and no operation is counted, the message is "No operations left after filters", even if operations passed the filters and all of them were excluded.
+- The Uncategorized list shows the final amount with a sign: an expense is negative (for example, -105.00), an income is positive (for example, 350.00).
+- Categories with equal sums are sorted by name, case-insensitive; `uncategorized` is sorted among the other names.
+- When deciding whether a line is empty, a field counts as empty only when it has no characters: a line whose fields contain only spaces is not an empty line and is rejected.
+- Errors are checked in this order, and the first one found decides the message and the exit code: arguments (exit 2), rules file (exit 1), `--category` (exit 2), statement file (exit 1).
+- `--category` matches the name exactly and case-sensitively: `--category groceries` is an unknown category when the rules have "Groceries".
+- The "Available:" list holds the rules' category names without repeats, sorted alphabetically and case-insensitive, with `uncategorized` last.
+- A rules file value of the wrong type or format (for example, `"income_mccs": [4829]` with numbers, or an MCC key that is not 4 digits) is a rules file error that shows the full path, exit 1.
 
 ## Acceptance criteria
 Criterion numbers are permanent IDs referenced by tests. A new criterion gets the next free number; a removed criterion is marked as removed, and its number is never reused.
@@ -141,6 +153,9 @@ Criterion numbers are permanent IDs referenced by tests. A new criterion gets th
 30. Given two rows identical in all columns with Balance "—", when I run the report, then both are counted and listed in Warnings as a possible duplicate with the line numbers of both rows.
 31. Given a rules file whose `own_transfer_patterns` contains an empty string, when I run the report, then I see an error that shows the full path of the rules file and the exit code is 1.
 32. Given `--category Grocery` while the rules file has the category "Groceries", when I run the report, then I see `Unknown category "Grocery"` with the list of available categories and the exit code is 2.
+33. Given a statement that contains only empty lines (blank, or with every field empty), with no header, when I run the report, then I see "Statement contains no operations" and the exit code is 0.
+34. Given a rules file where a category name is empty, whitespace-only, or `uncategorized` in any letter case (for example, `Uncategorized`), when I run the report, then I see an error that shows the full path of the rules file and the exit code is 1.
+35. Given a valid rules file saved in UTF-8 with BOM, when I run the report, then the rules are read and the report is the same as with the file without BOM.
 
 ## Non-goals
 - **No website.** We are not building a web version of the product.
